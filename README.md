@@ -8,6 +8,10 @@ This is a minimal, production-ready template for building **Trace Skills**. It i
 
 ### 1. Setup
 ```bash
+mkdir trace_skill
+cd trace_skill
+git clone git@github.com:EndlessRiverAI/trace-template-skill.git
+cd trace-template-skill
 npm install
 cp .env.example .env
 ```
@@ -17,11 +21,11 @@ Fill in your `TRACE_HMAC_SECRET` in `.env` once you register your skill.
 ```bash
 npm run dev
 ```
-In a separate terminal, expose your local server to the internet using **ngrok**:
+In a separate terminal, expose your local server to the internet using **localhost.run**:
 ```bash
-ngrok http 3000
+ssh -R 80:localhost:3000 localhost.run
 ```
-*Take note of the `https` URL ngrok provides (e.g., `https://abcd-123.ngrok-free.app`).*
+*Take note of the `https` URL localhost.run provides (e.g., `https://21231e1.localhost.run`).*
 
 ---
 
@@ -42,8 +46,38 @@ Your skill is defined by the `manifest.json`. You must submit this manifest via 
 
 ### Registration Steps:
 1. Go to **Dashboard** → **Skills** → **Create New Skill**.
-2. Paste your ngrok URL into the **Webhook** and **MCP** endpoint fields.
+2. Paste your localhost.run URL into the **Webhook** and **MCP** endpoint fields.
 3. Use the contents of `manifest.json` as a guide for your configuration.
+    Sample manifest for this skill:
+     ```jsx
+    {
+      "name": "Template Skill",
+      "version": "1.0.0",
+      "interface": "hybrid",
+      "endpoints": {
+        "webhook": "https://your-domain.localhost.run/webhook",
+        "mcp": "https://your-domain.localhost.run/mcp"
+      },
+      "triggers": [
+        { "channel": "interaction.dialog", "routing_mode": "active" }
+      ],
+      "domains": {
+        "general": "Handle general greetings and tests for the template skill. Match utterances like 'test template' or 'hello from template'."
+      },
+      "permissions": [
+        "notification.send",
+        "user.profile.read",
+        "user.location.read"
+      ],
+      "allowedTools": [
+        "mail.send"
+      ],
+      "data_retention": {
+        "max_days": 30,
+        "deletion_webhook": "https://your-domain.localhost.run/delete-user"
+      }
+    }
+    ```
 4. **Save** and copy the **HMAC Secret** into your `.env` file.
 
 ---
