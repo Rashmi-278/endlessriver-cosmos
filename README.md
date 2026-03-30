@@ -23,7 +23,7 @@ npm run dev
 ```
 In a separate terminal, expose your local server to the internet using **localhost.run**:
 ```bash
-ssh -R 80:localhost:3000 localhost.run
+ssh -R 80:localhost:3000 nokey@localhost.run
 ```
 *Take note of the `https` URL localhost.run provides (e.g., `https://21231e1.localhost.run`).*
 
