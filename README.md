@@ -76,5 +76,5 @@ Ready to go live? Check out the `deploy.sh` script for instructions on deploying
 ### Need Help?
 Reach out to **ishaan@endlessriver.ai** or check the **[Developer Reference](https://endlessriver.ai/dashboard/docs)** (or `/dashboard/docs` on your Trace domain) for more details.
 
-You can also follow the full **[Skill Builder Playbook](../docs/buildathon/SKILL_BUILDER_PLAYBOOK.md)** for a deep dive.
+You can also follow the full **[Skill Builder Playbook](./docs/buildathon/SKILL_BUILDER_PLAYBOOK.md)** for a deep dive.
 **Happy Building! 🛠️**
