@@ -1,0 +1,26 @@
+{
+  "skillId": "template-skill-001",
+  "name": "Template Skill",
+  "version": "1.0.0",
+  "interface": "hybrid",
+  "endpoints": {
+    "webhook": "https://your-domain.ngrok-free.app/webhook",
+    "mcp": "https://your-domain.ngrok-free.app/mcp"
+  },
+  "triggers": [
+    { "channel": "interaction.dialog", "routing_mode": "active" }
+  ],
+  "domains": {
+    "general": "Handle general greetings and tests for the template skill. Match utterances like 'test template' or 'hello from template'."
+  },
+  "permissions": [
+    "notification.send"
+  ],
+  "allowedTools": [
+    "mail.send"
+  ],
+  "data_retention": {
+    "max_days": 30,
+    "deletion_webhook": "https://your-domain.ngrok-free.app/delete-user"
+  }
+}
