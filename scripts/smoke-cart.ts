@@ -57,14 +57,29 @@ function expect(cond: boolean, label: string) {
   expect(list.status === 200, 'tools/list 200');
   expect(list.body.includes('handle_dialog'), 'has handle_dialog');
 
-  console.log('\n=== seed 3 items ===');
+  console.log('\n=== seed 3 items (2 IKEA marketplace + 1 non-IKEA) ===');
   deleteUserCart(USER_ID);
-  insertCartItem({ user_id: USER_ID, name: 'blue Markus office chair', category: 'furniture', price_est_usd: 270, store_guess: 'IKEA', source: 'photo', image_url: 'x' });
-  insertCartItem({ user_id: USER_ID, name: 'Kallax shelf', category: 'furniture', price_est_usd: 80, store_guess: 'IKEA', source: 'photo', image_url: 'x' });
-  insertCartItem({ user_id: USER_ID, name: 'LED desk lamp', category: 'home', price_est_usd: 35, store_guess: null, source: 'photo', image_url: 'x' });
+  insertCartItem({
+    user_id: USER_ID, name: 'blue MARKUS office chair', category: 'furniture',
+    price_est_usd: 270, price_local: 23990, currency: 'INR',
+    brand: 'IKEA', sku: '002.754.31', aisle: '15', bin: '22',
+    pickup_type: 'marketplace', room: 'office', store_guess: 'IKEA',
+    source: 'photo', image_url: 'x',
+  });
+  insertCartItem({
+    user_id: USER_ID, name: 'KALLAX shelf unit', category: 'storage',
+    price_est_usd: 80, price_local: 6990, currency: 'INR',
+    brand: 'IKEA', sku: '702.758.87', aisle: '21', bin: '05',
+    pickup_type: 'marketplace', room: 'living_room', store_guess: 'IKEA',
+    source: 'photo', image_url: 'x',
+  });
+  insertCartItem({
+    user_id: USER_ID, name: 'LED desk lamp', category: 'lighting',
+    price_est_usd: 35, source: 'photo', image_url: 'x',
+  });
   expect(listActiveCart(USER_ID).length === 3, 'seeded 3 items');
 
-  console.log('\n=== dialog: "what\'s in my cart" ===');
+  console.log('\n=== dialog: "what\'s in my cart" (expect IKEA aisle/bin in reply) ===');
   const listReply = await post('/shopping-cart/mcp', {
     jsonrpc: '2.0', id: 2, method: 'tools/call',
     params: { name: 'handle_dialog', arguments: { utterance: "what's in my cart" } },
@@ -73,7 +88,20 @@ function expect(cond: boolean, label: string) {
   expect(listReply.status === 200, 'list 200');
   expect(listReply.body.includes('3 items'), 'reply mentions 3 items');
   expect(listReply.body.includes('385') || listReply.body.includes('~$385'), 'reply includes total ~$385');
+  expect(listReply.body.includes('aisle 15'), 'reply includes IKEA aisle 15');
+  expect(listReply.body.includes('bin 22'), 'reply includes IKEA bin 22');
   console.log('  ', JSON.parse(listReply.body).result.content[0].text);
+
+  console.log('\n=== dialog: "what\'s in my IKEA cart" (brand-filtered, expect 2 items) ===');
+  const listIkea = await post('/shopping-cart/mcp', {
+    jsonrpc: '2.0', id: 22, method: 'tools/call',
+    params: { name: 'handle_dialog', arguments: { utterance: "what's in my IKEA cart" } },
+    user: { id: USER_ID },
+  });
+  expect(listIkea.body.includes('2 items'), 'IKEA filter returns 2 items');
+  expect(listIkea.body.toLowerCase().includes('ikea cart'), 'reply says "IKEA cart"');
+  expect(!listIkea.body.includes('LED desk lamp'), 'non-IKEA lamp excluded');
+  console.log('  ', JSON.parse(listIkea.body).result.content[0].text);
 
   console.log('\n=== dialog: "add this to my cart" (expect photo prompt) ===');
   const prompt = await post('/shopping-cart/mcp', {

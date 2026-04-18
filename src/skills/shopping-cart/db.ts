@@ -34,6 +34,27 @@ db.exec(`
     ON cart_items(user_id, name);
 `);
 
+// ─── Idempotent schema migration for IKEA-aware fields ────────────────────
+// Adds columns only if they don't exist. Safe to run on every boot.
+function addColumnIfMissing(col: string, definition: string) {
+  const cols = db.prepare(`PRAGMA table_info(cart_items)`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE cart_items ADD COLUMN ${col} ${definition}`);
+    console.log(`[shopping-cart:migrate] added column cart_items.${col}`);
+  }
+}
+addColumnIfMissing('brand', 'TEXT');                 // 'IKEA', 'Target', etc.
+addColumnIfMissing('sku', 'TEXT');                   // IKEA's 8-digit article number, or other SKU
+addColumnIfMissing('aisle', 'TEXT');                 // marketplace aisle label
+addColumnIfMissing('bin', 'TEXT');                   // marketplace bin number
+addColumnIfMissing('currency', 'TEXT');              // 'USD', 'EUR', 'INR', etc.
+addColumnIfMissing('price_local', 'REAL');           // price in the extracted currency
+addColumnIfMissing('room', 'TEXT');                  // 'bedroom', 'kitchen', 'living_room', etc.
+addColumnIfMissing('pickup_type', 'TEXT');           // 'marketplace' | 'showroom' | 'unknown'
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_cart_user_brand ON cart_items(user_id, brand)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_cart_user_room  ON cart_items(user_id, room)`);
+
 export type CartItem = {
   id: number;
   user_id: string;
@@ -48,6 +69,15 @@ export type CartItem = {
   source: 'photo' | 'dialog_text';
   status: 'active' | 'removed' | 'purchased';
   request_id: string | null;
+  // IKEA-aware additions
+  brand: string | null;
+  sku: string | null;
+  aisle: string | null;
+  bin: string | null;
+  currency: string | null;
+  price_local: number | null;
+  room: string | null;
+  pickup_type: 'marketplace' | 'showroom' | 'unknown' | null;
 };
 
 export type NewCartItem = {
@@ -62,13 +92,23 @@ export type NewCartItem = {
   notes?: string | null;
   source: 'photo' | 'dialog_text';
   request_id?: string | null;
+  brand?: string | null;
+  sku?: string | null;
+  aisle?: string | null;
+  bin?: string | null;
+  currency?: string | null;
+  price_local?: number | null;
+  room?: string | null;
+  pickup_type?: 'marketplace' | 'showroom' | 'unknown' | null;
 };
 
 const insertStmt = db.prepare(`
   INSERT INTO cart_items
-    (user_id, ts, name, category, price_est_usd, store_guess, qty, image_url, notes, source, request_id)
+    (user_id, ts, name, category, price_est_usd, store_guess, qty, image_url, notes, source, request_id,
+     brand, sku, aisle, bin, currency, price_local, room, pickup_type)
   VALUES
-    (@user_id, @ts, @name, @category, @price_est_usd, @store_guess, @qty, @image_url, @notes, @source, @request_id)
+    (@user_id, @ts, @name, @category, @price_est_usd, @store_guess, @qty, @image_url, @notes, @source, @request_id,
+     @brand, @sku, @aisle, @bin, @currency, @price_local, @room, @pickup_type)
 `);
 
 export function insertCartItem(item: NewCartItem): number {
@@ -84,6 +124,14 @@ export function insertCartItem(item: NewCartItem): number {
     notes: item.notes ?? null,
     source: item.source,
     request_id: item.request_id ?? null,
+    brand: item.brand ?? null,
+    sku: item.sku ?? null,
+    aisle: item.aisle ?? null,
+    bin: item.bin ?? null,
+    currency: item.currency ?? null,
+    price_local: item.price_local ?? null,
+    room: item.room ?? null,
+    pickup_type: item.pickup_type ?? null,
   });
   return Number(row.lastInsertRowid);
 }
@@ -95,6 +143,24 @@ const listActiveStmt = db.prepare(`
 `);
 export function listActiveCart(userId: string): CartItem[] {
   return listActiveStmt.all(userId) as CartItem[];
+}
+
+const listActiveByBrandStmt = db.prepare(`
+  SELECT * FROM cart_items
+  WHERE user_id = ? AND status = 'active' AND LOWER(brand) = LOWER(?)
+  ORDER BY ts DESC
+`);
+export function listActiveCartByBrand(userId: string, brand: string): CartItem[] {
+  return listActiveByBrandStmt.all(userId, brand) as CartItem[];
+}
+
+const listActiveByRoomStmt = db.prepare(`
+  SELECT * FROM cart_items
+  WHERE user_id = ? AND status = 'active' AND LOWER(room) = LOWER(?)
+  ORDER BY ts DESC
+`);
+export function listActiveCartByRoom(userId: string, room: string): CartItem[] {
+  return listActiveByRoomStmt.all(userId, room) as CartItem[];
 }
 
 const findByNameStmt = db.prepare(`
