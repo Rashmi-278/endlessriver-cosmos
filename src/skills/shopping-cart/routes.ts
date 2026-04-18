@@ -3,6 +3,7 @@ import { verifyTraceSignature } from '../../hmac';
 import { visionExtract } from '../../shared/vision';
 import { sendPushResponse } from '../../shared/push';
 import { lookupProduct } from '../../shared/inventory';
+import { logEvent } from '../../shared/events';
 import {
   insertCartItem,
   listActiveCart,
@@ -306,18 +307,44 @@ export function buildShoppingCartRouter(cfg: ShoppingCartConfig): Router {
   router.post('/webhook', verifyTraceSignature(cfg.hmacSecret), async (req: Request, res: Response) => {
     const { event, user, request_id, callback_url } = req.body ?? {};
     console.log(`[shopping-cart:webhook] ${event?.channel} user=${user?.id} req=${request_id}`);
+    logEvent({
+      skill: 'shopping-cart',
+      kind: 'webhook.received',
+      user_id: user?.id,
+      request_id,
+      summary: `${event?.channel || 'unknown-channel'} from ${user?.id || 'unknown-user'}`,
+      detail: { channel: event?.channel, item_count: event?.items?.length ?? 0 },
+    });
     res.status(202).json({ status: 'accepted', request_id });
 
-    if (event?.channel !== 'media.photo') return;
+    if (event?.channel !== 'media.photo') {
+      logEvent({
+        skill: 'shopping-cart',
+        kind: 'webhook.ignored',
+        user_id: user?.id,
+        request_id,
+        summary: `Ignored channel ${event?.channel}`,
+      });
+      return;
+    }
 
     const items = Array.isArray(event.items) ? event.items : [];
     const photo = items.find((it: any) => it?.url);
     if (!photo) {
       console.warn('[shopping-cart:webhook] no photo url');
+      logEvent({
+        skill: 'shopping-cart',
+        kind: 'webhook.no_photo',
+        level: 'warn',
+        user_id: user?.id,
+        request_id,
+        summary: 'media.photo event had no photo url',
+      });
       return;
     }
 
     try {
+      const visionStart = Date.now();
       const vision = await visionExtract<VisionItem>(photo.url, ITEM_EXTRACTION_PROMPT);
       if (!vision?.item || typeof vision.item !== 'string') {
         throw new Error('no item extracted');
@@ -325,6 +352,14 @@ export function buildShoppingCartRouter(cfg: ShoppingCartConfig): Router {
       console.log(
         `[shopping-cart:vision] item="${vision.item}" brand=${vision.brand} sku=${vision.sku} price=${vision.price_local}${vision.currency || ''} aisle=${vision.aisle} bin=${vision.bin} pickup=${vision.pickup_type} room=${vision.room}`,
       );
+      logEvent({
+        skill: 'shopping-cart',
+        kind: 'vision.completed',
+        user_id: user?.id,
+        request_id,
+        summary: `Extracted "${vision.item}"${vision.brand ? ` (${vision.brand})` : ''}`,
+        detail: { ...vision, duration_ms: Date.now() - visionStart },
+      });
 
       // Enrich via retailer-uploaded inventory. Canonical data wins when there's a hit.
       const hit = lookupProduct({
@@ -338,8 +373,24 @@ export function buildShoppingCartRouter(cfg: ShoppingCartConfig): Router {
         console.log(
           `[shopping-cart:enrich] matched id=${canonical.id} score=${hit!.score} reason=${hit!.reason}`,
         );
+        logEvent({
+          skill: 'shopping-cart',
+          kind: 'inventory.match',
+          user_id: user?.id,
+          request_id,
+          summary: `Matched ${canonical.name} (${canonical.id}) score=${hit!.score}`,
+          detail: { product_id: canonical.id, name: canonical.name, score: hit!.score, reason: hit!.reason, vision_guess: vision.item },
+        });
       } else {
         console.log(`[shopping-cart:enrich] no inventory match; storing raw vision output`);
+        logEvent({
+          skill: 'shopping-cart',
+          kind: 'inventory.miss',
+          user_id: user?.id,
+          request_id,
+          summary: `No inventory match for "${vision.item}" — using raw vision`,
+          detail: { vision_guess: vision.item, brand: vision.brand },
+        });
       }
 
       const merged = {
@@ -417,8 +468,25 @@ export function buildShoppingCartRouter(cfg: ShoppingCartConfig): Router {
       ], callback_url);
 
       console.log(`[shopping-cart:db] inserted id=${id} enriched=${canonical ? 'yes' : 'no'}`);
+      logEvent({
+        skill: 'shopping-cart',
+        kind: 'db.insert',
+        user_id: user?.id,
+        request_id,
+        summary: `Added "${merged.name}" to cart (id=${id}${canonical ? ', enriched' : ''})`,
+        detail: { row_id: id, enriched: Boolean(canonical), merged },
+      });
     } catch (err: any) {
       console.error('[shopping-cart:webhook] failed:', err?.message || err);
+      logEvent({
+        skill: 'shopping-cart',
+        kind: 'webhook.failed',
+        level: 'error',
+        user_id: user?.id,
+        request_id,
+        summary: `Processing failed: ${err?.message?.slice(0, 120) || 'unknown error'}`,
+        detail: { error: String(err?.message || err) },
+      });
       await sendPushResponse(cfg.skillId, cfg.hmacSecret, user.id, [
         {
           type: 'notification',
@@ -478,6 +546,13 @@ export function buildShoppingCartRouter(cfg: ShoppingCartConfig): Router {
 
     const intent = classify(utterance);
     console.log(`[shopping-cart:dialog] intent=${JSON.stringify(intent)}`);
+    logEvent({
+      skill: 'shopping-cart',
+      kind: 'mcp.dialog',
+      user_id: userId,
+      summary: `"${utterance.slice(0, 100)}" → intent=${intent.type}`,
+      detail: { utterance, intent },
+    });
 
     switch (intent.type) {
       case 'prompt_photo':

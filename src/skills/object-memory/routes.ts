@@ -3,6 +3,7 @@ import { verifyTraceSignature } from '../../hmac';
 import { visionExtract, textExtract, hasVision } from '../../shared/vision';
 import { sendPushResponse } from '../../shared/push';
 import { formatTimeAgo, locationString, parseLocation } from '../../shared/geo';
+import { logEvent } from '../../shared/events';
 import {
   insertMemory,
   findLatestByObject,
@@ -155,23 +156,57 @@ export function buildObjectMemoryRouter(cfg: ObjectMemoryConfig): Router {
   router.post('/webhook', verifyTraceSignature(cfg.hmacSecret), async (req: Request, res: Response) => {
     const { event, user, request_id, callback_url } = req.body ?? {};
     console.log(`[object-memory:webhook] ${event?.channel} user=${user?.id} req=${request_id}`);
+    logEvent({
+      skill: 'object-memory',
+      kind: 'webhook.received',
+      user_id: user?.id,
+      request_id,
+      summary: `${event?.channel || 'unknown-channel'} from ${user?.id || 'unknown-user'}`,
+      detail: { channel: event?.channel, item_count: event?.items?.length ?? 0 },
+    });
     res.status(202).json({ status: 'accepted', request_id });
 
-    if (event?.channel !== 'media.photo') return;
+    if (event?.channel !== 'media.photo') {
+      logEvent({
+        skill: 'object-memory',
+        kind: 'webhook.ignored',
+        user_id: user?.id,
+        request_id,
+        summary: `Ignored channel ${event?.channel}`,
+      });
+      return;
+    }
 
     const items = Array.isArray(event.items) ? event.items : [];
     const photo = items.find((it: any) => it?.url);
     if (!photo) {
       console.warn('[object-memory:webhook] no photo url');
+      logEvent({
+        skill: 'object-memory',
+        kind: 'webhook.no_photo',
+        level: 'warn',
+        user_id: user?.id,
+        request_id,
+        summary: 'media.photo event had no photo url',
+      });
       return;
     }
 
     try {
+      const visionStart = Date.now();
       const vision = await visionExtract<{ objects: string[]; scene: string }>(photo.url, EXTRACTION_PROMPT);
       if (!Array.isArray(vision.objects) || vision.objects.length === 0) {
         throw new Error('no objects extracted');
       }
       console.log(`[object-memory:vision] objects=${JSON.stringify(vision.objects)} scene="${vision.scene}"`);
+      logEvent({
+        skill: 'object-memory',
+        kind: 'vision.completed',
+        user_id: user?.id,
+        request_id,
+        summary: `Extracted ${vision.objects.length} objects: ${vision.objects.slice(0, 3).join(', ')}`,
+        detail: { objects: vision.objects, scene: vision.scene, duration_ms: Date.now() - visionStart },
+      });
 
       const rowId = insertMemory({
         user_id: user.id,
@@ -182,6 +217,14 @@ export function buildObjectMemoryRouter(cfg: ObjectMemoryConfig): Router {
         request_id,
       });
       console.log(`[object-memory:db] inserted memory id=${rowId}`);
+      logEvent({
+        skill: 'object-memory',
+        kind: 'db.insert',
+        user_id: user?.id,
+        request_id,
+        summary: `Saved memory id=${rowId}`,
+        detail: { row_id: rowId, location: locationString(user) },
+      });
 
       await sendPushResponse(cfg.skillId, cfg.hmacSecret, user.id, [
         {
@@ -196,6 +239,15 @@ export function buildObjectMemoryRouter(cfg: ObjectMemoryConfig): Router {
       ], callback_url);
     } catch (err: any) {
       console.error('[object-memory:webhook] processing failed:', err?.message || err);
+      logEvent({
+        skill: 'object-memory',
+        kind: 'webhook.failed',
+        level: 'error',
+        user_id: user?.id,
+        request_id,
+        summary: `Processing failed: ${err?.message?.slice(0, 120) || 'unknown error'}`,
+        detail: { error: String(err?.message || err) },
+      });
       await sendPushResponse(cfg.skillId, cfg.hmacSecret, user.id, [
         {
           type: 'notification',
@@ -268,6 +320,13 @@ export function buildObjectMemoryRouter(cfg: ObjectMemoryConfig): Router {
 
     const utterance: string = String(args?.utterance ?? '').trim();
     console.log(`[object-memory:dialog] user=${userId} utterance="${utterance}"`);
+    logEvent({
+      skill: 'object-memory',
+      kind: 'mcp.dialog',
+      user_id: userId,
+      summary: `"${utterance.slice(0, 120)}"`,
+      detail: { utterance, tool: name },
+    });
     if (!utterance) return res.json(mcpReply(id, "I didn't catch that. Try again?"));
 
     const placeFromSpeech = isPlaceCommand(utterance);
@@ -285,6 +344,13 @@ export function buildObjectMemoryRouter(cfg: ObjectMemoryConfig): Router {
       if (hit) {
         const text = memoryToReplyText(userId, hit, keyword);
         console.log(`[object-memory:dialog] keyword="${keyword}" match=${hit.id}`);
+        logEvent({
+          skill: 'object-memory',
+          kind: 'mcp.match.keyword',
+          user_id: userId,
+          summary: `"${keyword}" → memory id=${hit.id}`,
+          detail: { keyword, memory_id: hit.id, reply: text },
+        });
         return res.json(fullDialogReply(id, text, keyword));
       }
     }
@@ -302,11 +368,25 @@ export function buildObjectMemoryRouter(cfg: ObjectMemoryConfig): Router {
           const label = sem.reason || keyword || 'that';
           const text = memoryToReplyText(userId, hit, label);
           console.log(`[object-memory:dialog] semantic hit=${hit.id}`);
+          logEvent({
+            skill: 'object-memory',
+            kind: 'mcp.match.semantic',
+            user_id: userId,
+            summary: `"${utterance.slice(0, 60)}" → memory id=${hit.id} (${label})`,
+            detail: { utterance, memory_id: hit.id, label, reply: text },
+          });
           return res.json(fullDialogReply(id, text, label));
         }
       }
     }
 
+    logEvent({
+      skill: 'object-memory',
+      kind: 'mcp.miss',
+      user_id: userId,
+      summary: keyword ? `No match for "${keyword}"` : 'No match (no keyword)',
+      detail: { utterance, keyword, recent_count: recent.length },
+    });
     return res.json(
       mcpReply(id, keyword ? `I haven't seen your ${keyword} yet.` : "I couldn't find a match."),
     );

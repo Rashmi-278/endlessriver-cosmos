@@ -8,6 +8,8 @@ import {
 } from './skills/object-memory/routes';
 import { buildShoppingCartRouter } from './skills/shopping-cart/routes';
 import { inventoryStatus } from './shared/inventory';
+import { buildInspectRouter } from './inspect/routes';
+import { logEvent } from './shared/events';
 
 dotenv.config();
 
@@ -33,6 +35,9 @@ app.use(bodyParser.json({ limit: '2mb' }));
 // ─── Mount skills ─────────────────────────────────────────────────────────
 app.use(`/${OBJECT_MEMORY.slug}`, buildObjectMemoryRouter(OBJECT_MEMORY));
 app.use(`/${SHOPPING_CART.slug}`, buildShoppingCartRouter(SHOPPING_CART));
+
+// ─── Mount inspect (public by default — set INSPECT_TOKEN to lock) ───────
+app.use('/inspect', buildInspectRouter({ token: process.env.INSPECT_TOKEN || '' }));
 
 // ─── Cron registration ───────────────────────────────────────────────────
 const DAILY_RECAP_CRON = process.env.DAILY_RECAP_CRON || '0 21 * * *';
@@ -96,5 +101,15 @@ app.get('/', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Trace skills host on :${PORT}`);
-  console.log(`   mounted: /${OBJECT_MEMORY.slug}, /${SHOPPING_CART.slug}`);
+  console.log(`   mounted: /${OBJECT_MEMORY.slug}, /${SHOPPING_CART.slug}, /inspect`);
+  logEvent({
+    skill: 'system',
+    kind: 'server.started',
+    summary: `Server started on :${PORT} with skills: object-memory, shopping-cart`,
+    detail: {
+      skills: ['object-memory', 'shopping-cart'],
+      inspect_auth: process.env.INSPECT_TOKEN ? 'token required' : 'public',
+      semantic: process.env.DISABLE_SEMANTIC !== '1',
+    },
+  });
 });
