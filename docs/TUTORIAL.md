@@ -21,18 +21,70 @@ Both skills run on **one Render web service**. One Git repo. One Node process. S
 
 ## 1. Prerequisites
 
-Before we started, these were in place:
+This section splits into two halves: **what the Trace team gives you** (hardware, invite, playbook, companion app via TestFlight) and **what you set up yourself** (GitHub, Render, Gemini, local Node).
+
+### 1.1 What Trace / Endless River gives you
+
+This is a pre-launch pilot, so the onboarding is hand-held by the Endless River team (Ishaan Bansal is the person we worked with). Four things show up:
+
+**1. The physical glasses.** Picked up in person (at the pilot we attended there were ~15 M08 units in a box, all identically named — a temporary BLE-pairing quirk that'll be fixed with unique IDs before public launch). You confirm you're paired by playing music from your phone and hearing it on *your* glasses rather than a neighbour's.
+
+**2. An invite to the Trace iPhone companion app via TestFlight.** This is the one that trips people up, so the detail:
+
+- Ishaan adds your Apple ID email to App Store Connect as an internal/external tester.
+- You get an email from Apple titled something like *"You have been invited to test Trace"*.
+- That email contains a **TestFlight redeem code** (or a direct link).
+- You install Apple's **TestFlight** app from the App Store on your iPhone (free, first-party Apple app).
+- Open TestFlight → "Redeem" → paste the code (or just tap the link in the email and it deep-links into TestFlight).
+- The Trace app appears in your TestFlight list → tap **Install** → it installs alongside your normal apps.
+- Open the Trace app → create an account (email + verification code typically) → pair to your glasses via Bluetooth.
+
+TestFlight builds expire every 90 days, so expect periodic "new build available" prompts during the pilot. Apple limits internal testers to 100 and external testers to 10,000, which is plenty for a pilot.
+
+**3. Access to the Trace Developer Dashboard.** A web dashboard where you register your skill (paste URLs, list triggers, define domains, get issued an HMAC secret + skill ID). This is where you came back to in Step 14 of this tutorial.
+
+**4. The Skill Builder Playbook.** A prose walkthrough of the platform (channels, actions, examples) linked from the template README. Copy of it lives in `docs/buildathon/SKILL_BUILDER_PLAYBOOK.md` in the template repo you cloned. Worth reading top-to-bottom before writing code — it's ~30 min and saves you hours of guessing what's possible.
+
+**Android note.** At the time of writing, the companion app is iOS-only on TestFlight. When Android lands, distribution typically happens via one of:
+- **Google Play Internal Testing** — uploads an AAB to Play Console, testers opt in via a link, install through the Play Store (most common for production-bound apps)
+- **Firebase App Distribution** — looser sideload, tester gets an email with an install link, no Play Store involvement
+- **Direct APK sideload** — for very early builds, just an APK file shared over Slack/email; you enable "Install unknown apps" on your device
+
+Neither TestFlight nor any of the Android equivalents can be shortcut — Apple and Google both gate pre-release distribution. Expect the same flow on Android once it exists.
+
+### 1.2 What you set up yourself
 
 | Thing | Why |
 |---|---|
-| Trace developer dashboard access | To register skills and get their HMAC secrets |
+| Trace developer dashboard access | Register skills, get HMAC secrets + skill IDs (given to you per 1.1 above) |
 | GitHub account (we used `Rashmi-278`) | Render deploys from a Git remote |
 | Render account (free tier fine) | To host the Node server publicly |
-| Google AI Studio API key | Free Gemini 1.5 Flash access — 15 RPM / 1,500 req/day |
+| Google AI Studio API key | Free Gemini 1.5 Flash access — 15 RPM / 1,500 req/day. Create at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey), no credit card |
 | Node 18+ locally | Build and smoke-test before deploying |
-| SSH key on GitHub | For git push without password prompts |
+| SSH key on GitHub | For `git push` without password prompts — `ssh-keygen -t ed25519` then paste the pub key into github.com/settings/keys |
 
 You can sub Render for Railway / Fly / your own VPS. You can sub Gemini for OpenAI `gpt-4o-mini` or Anthropic Claude — any vision LLM with JSON mode works.
+
+### 1.3 The user flow end-to-end (what actually happens the first time)
+
+From zero to "I'm holding the glasses and the skill I built is running":
+
+```
+1. Get contacted by Ishaan → he collects your Apple ID email + GitHub handle
+2. Receive TestFlight invite email from Apple → redeem code → install TestFlight + Trace app
+3. Pick up the physical glasses (pair with music-playback sanity check)
+4. Open Trace app on iPhone → sign in → pair glasses over Bluetooth
+5. Get access to the developer dashboard → browse existing skills
+6. Clone the template repo: git clone git@github.com:EndlessRiverAI/trace-template-skill.git
+7. Read docs/buildathon/SKILL_BUILDER_PLAYBOOK.md end-to-end (~30 min)
+8. Build your skill locally (steps 1-12 of this tutorial)
+9. Deploy to Render (step 13)
+10. Register in Trace dashboard (step 14) → get HMAC secret + skill ID
+11. Set the real HMAC + skill ID as Render env vars → auto-redeploy
+12. Wear the glasses → test the skill end-to-end (Section 11)
+```
+
+Steps 1-5 are people-gated (you wait for Ishaan to invite you, the email to arrive, the glasses to be handed over). Steps 6-12 are all you.
 
 ---
 
@@ -828,7 +880,332 @@ If all ten steps work, you shipped.
 
 ---
 
-## 12. The larger lesson
+## 12. Testing both skills end-to-end (per-skill manuals)
+
+This section is what you read **with the glasses on your face and the phone in your hand**. Two manuals, one per skill, each written so a non-dev pilot user could follow along. Plus a shared pre-flight checklist and a live-debug playbook.
+
+### 12.1 Pre-flight checklist (run once before every test session)
+
+Before wearing the glasses, confirm all four:
+
+**A) The Render service is awake and healthy.**
+```bash
+curl https://endlessriver-cosmos.onrender.com/health
+# Expected: {"ok":true,"skills":["object-memory","shopping-cart"],"semantic":true}
+```
+If you get a timeout or 500, the free-tier instance is cold-starting — wait ~30s and retry. If `skills` is missing an entry, the deploy didn't pick up the latest code; check the Render dashboard for a stuck deploy.
+
+**B) Both skills are registered in the Trace dashboard.**
+Open the Dashboard → Skills. You should see:
+- **Object Memory** — interface: Hybrid, triggers: media.photo + interaction.dialog, URLs point at `https://endlessriver-cosmos.onrender.com/object-memory/*`
+- **Shopping Cart** — interface: Hybrid, same URL pattern under `/shopping-cart/*`
+
+Both should show "Active" (or "Approved" for proactive-push-enabled skills).
+
+**C) Your glasses are paired to your phone.**
+Open the Trace app on iPhone → Settings/Device → confirm glasses show as **Connected**. If stuck on "Searching": re-pair via Bluetooth settings. During the pilot, multiple M08 units advertise the same name, so pick the one with the highest signal strength (yours should be closest).
+
+**D) Play-test audio.** With the glasses on, play any song from Apple Music/Spotify on your iPhone. You should hear it through the glasses speakers, not your iPhone speaker. If you hear it on the iPhone, the audio-route is still on the phone — tap the AirPlay icon in Control Center and select the Trace glasses.
+
+Once all four pass, you're ready.
+
+### 12.2 Skill manual — Object Memory
+
+**What it does.** Gives you photographic memory for physical objects. You take a photo of where you placed something; later you ask in natural voice where that thing is; it tells you with time and location context.
+
+**When it's useful.**
+- You put your keys down somewhere and forget
+- You stash your passport before a trip and can't remember which drawer
+- You put a book on a shelf and want to find it weeks later
+- You want a daily recap of what you interacted with ("today I handled: keys at home; laptop at office; passport at home")
+
+**What it's NOT for.**
+- Real-time object *tracking* (it only knows where you last photographed it)
+- Fine-grained identity ("the red book" vs "the blue book" — works only if Gemini's vision extracted different labels)
+- Anything requiring continuous video or ambient always-on capture
+
+#### How to trigger a capture
+
+1. **Hold the object you want to remember somewhere visible** — on the counter, on your desk, in your hand.
+2. **Tap the button on the glasses to take a photo** (exact button location varies by hardware; the pilot uses a capacitive tap on the temple).
+3. **Wait ~2 seconds.** You'll hear a TTS confirmation in your ear: *"I'll remember: keys, wallet, mug."* — the three things Gemini picked out of the scene.
+4. **Check the Trace app feed** — a new entry appears: *"Object memory captured: on the kitchen counter next to a coffee mug."*
+
+If you don't hear anything within ~5 seconds, the photo may have failed to process. Check Render logs (see 12.4).
+
+#### How to query
+
+Trigger voice dialog on the glasses (the pilot's UX: press-and-hold, or say a wake word — check with Ishaan which is active on your build). Then say any of:
+
+| Utterance | What happens |
+|---|---|
+| *"Where are my keys?"* | Finds the most recent photo tagged with `keys`, replies with scene + time |
+| *"Where did I leave my wallet?"* | Same, for wallet |
+| *"Have you seen my passport?"* | Same, for passport |
+| *"Find my laptop"* | Same, for laptop |
+| *"Where's my phone?"* | Same, for phone — though tricky if the phone you're asking from is the phone you're asking about |
+
+**Expected replies (format):**
+> *"I last saw your keys at home, on the kitchen counter next to a coffee mug, 12 minutes ago."*
+
+If no place is tagged:
+> *"I last saw your keys on the kitchen counter next to a coffee mug, 12 minutes ago."*
+
+If nothing matches:
+> *"I haven't seen your keys yet."*
+
+If you've never captured anything:
+> *"I haven't seen anything yet. Snap a photo first."*
+
+#### How to name a place (for "at home" / "at office" context)
+
+Stand in the location you want to name. Trigger voice dialog. Say:
+- *"Call this place home"*
+- *"Mark this as office"*
+- *"Name this kitchen"*
+- *"Tag here as gym"*
+
+Expected TTS: *"Got it. This is home."*
+
+The skill records your current lat/lng with a 100m radius. Any future memory captured within 100m of that point will be tagged `at home` in the voice reply.
+
+**Gotcha:** GPS accuracy indoors is ~20-50m. If you name "home" in your kitchen and later photograph something in your bedroom 15m away, it'll still show *"at home"* — that's fine, it's the intent. If you named two places within 100m of each other, the first match wins; give named places clean separation for best behaviour.
+
+#### Fuzzy queries (semantic fallback)
+
+If the keyword extractor doesn't match (you asked about *"that black thing I had earlier"* instead of a specific noun), the skill asks Gemini to look at your last 20 memories and pick the best match. Slower (~1-2s extra), often surprisingly good.
+
+Try:
+- *"That thing I was holding this morning"*
+- *"The red folder I had earlier"*
+- *"My keys that were on the counter"* (specific enough that regex catches it; fallback not invoked)
+
+Set `DISABLE_SEMANTIC=1` on Render if you want to test without this fallback.
+
+#### Daily recap (currently disabled in prod)
+
+When enabled, at 21:00 IST the skill fires a push notification:
+> *"Today I logged: keys at home; wallet at home; laptop at office."*
+
+Disabled right now because Render free tier spins down after 15 min idle — the cron silently misses if the service is asleep. To test the logic manually:
+```bash
+curl -X POST https://endlessriver-cosmos.onrender.com/admin/run-recap/object-memory \
+  -H "x-admin-secret: b377f097829875445f63a7e4b002cf0e4b124d0f9a3124ed8945364fbfdaec41"
+# Expected: {"ok":true,"queued":true}
+```
+(Secret in the header is the HMAC secret from the Trace dashboard — same one Render uses.)
+
+Production fix is deferred — see TODOs.md "Render Cron Jobs" item.
+
+#### Test script (10-minute happy path)
+
+1. Pre-flight checklist (12.1) passes.
+2. Stand in your kitchen with your keys.
+3. Photograph keys on the counter. → *"I'll remember: keys..."*
+4. Say *"call this place kitchen"*. → *"Got it. This is kitchen."*
+5. Walk to another room. Photograph your wallet on a desk. → *"I'll remember: wallet..."*
+6. Walk back to the kitchen. Say *"where are my keys?"* → *"I last saw your keys at kitchen, on the counter..., 2 minutes ago."*
+7. Say *"where's my wallet?"* → *"I last saw your wallet on a desk..., 1 minute ago."* (no place tag, because you didn't name the other room)
+8. Try the semantic fallback: *"the thing I had in my hand earlier"* → should still pick one of your memories.
+
+If steps 1-7 work, Object Memory is shipped. Step 8 is bonus.
+
+### 12.3 Skill manual — Shopping Cart
+
+**What it does.** Adds items to a per-user shopping list via photos. You're in a store, you see a product you want, you photograph it and say *"add this to my cart"*. Later you ask *"what's in my cart?"* or *"email me my cart"*.
+
+**When it's useful.**
+- Walking through IKEA/hardware store/grocery and wanting to build a list without typing
+- Shopping for furniture over multiple store visits — capture in context, review later
+- Comparison shopping — capture a few options, email yourself the list, decide at home
+- Reminder list for things you'll buy online later ("I need batteries")
+
+**What it's NOT for (Mode A limits).**
+- Bulk add during a walk-through without photographing each item (that's Mode B' / audio narration — deferred)
+- Actually placing orders (the skill lists; it doesn't transact)
+- Real prices — Gemini's `estimated_price_usd` is a guess, not a lookup
+
+#### How to add items
+
+**Method 1: photo-based (the main flow).**
+
+1. See a product in a store.
+2. Trigger voice dialog. Say *"add this to my cart"*.
+3. Reply: *"Sure, snap a photo of the item and I'll add it to your cart."*
+4. Photograph the product (clear, well-lit, one product in frame).
+5. Wait ~2 seconds. TTS: *"Added blue Markus office chair (~$270) at IKEA to your cart."*
+6. Feed entry in the Trace app: *"Cart: +blue Markus office chair"*
+
+The price + store are Gemini's best-guess; they're labeled as estimates. The skill stores whatever Gemini returns.
+
+**Method 2: voice-only add (no photo).**
+
+Trigger dialog. Say any of:
+- *"Add a toothbrush"*
+- *"Add batteries to my list"*
+- *"Put a notebook in my cart"*
+
+TTS: *"Added toothbrush to your cart."*
+
+No price/category/store — these become text-only entries. Useful for remembering items that aren't in front of you.
+
+#### How to query the cart
+
+| Utterance | Behaviour |
+|---|---|
+| *"What's in my cart?"* | Reads back first 5 items + total estimated price |
+| *"Show my cart"* | Same as above |
+| *"List my cart"* | Same as above |
+
+**Expected reply:**
+> *"You have 4 items: blue Markus office chair (~$270); Kallax shelf (~$80); LED desk lamp (~$35); toothbrush. Estimated total: ~$385."*
+
+If empty:
+> *"Your cart is empty."*
+
+Items without prices contribute nothing to the total; the total is a sum of the ones that have price estimates.
+
+#### How to remove items
+
+Trigger dialog. Say any of:
+- *"Remove the lamp"*
+- *"Delete the chair"*
+- *"Take out the shelf"*
+- *"Drop the notebook"*
+- *"Cancel the toothbrush"*
+
+The skill fuzzy-matches against `name` columns (substring LIKE). Most recent match wins if there are duplicates.
+
+TTS: *"Removed LED desk lamp from your cart."*
+
+Miss case: *"I don't see 'unicorn' in your cart."*
+
+#### How to clear the whole cart
+
+Say *"clear my cart"* or *"empty my cart"*.
+
+The skill returns a **confirm_action** — you'll hear/see a Yes/No prompt on the glasses before anything is deleted. This is deliberate: clearing is destructive and we don't want a misheard command to nuke your shopping list.
+
+- Confirm → *"Cleared 4 items from your cart."*
+- Decline → *"Cart untouched."*
+
+#### How to checkout / email your cart
+
+Say *"email me my cart"* or *"checkout"*.
+
+Two things happen simultaneously:
+1. TTS + feed entry summarising the cart contents.
+2. An email lands in your Gmail (the account connected to Trace) with subject `Your shopping cart (N items)` and an HTML table: Item / Category / Qty / Estimated price / Store.
+
+After checkout, all active items are marked `status = 'purchased'` — they're out of the active cart but still in the DB. If you say *"what's in my cart?"* immediately after, it'll say *"Your cart is empty."* because purchased items are filtered out of the active list.
+
+**Privacy note.** The skill never sees your email address. The `mail.send` platform tool is invoked with just `{subject, body, html}`; Trace's backend fills in the authenticated user's email and sends it via Gmail.
+
+#### Test script (10-minute happy path)
+
+1. Pre-flight checklist (12.1) passes.
+2. Find any object you'd buy in a store (a mug works fine in your kitchen).
+3. Trigger dialog, say *"add this to my cart"* → *"Sure, snap a photo..."*
+4. Photograph the object. Wait for TTS confirmation.
+5. Say *"add a toothbrush"* (text-only add).
+6. Say *"what's in my cart?"* → should hear 2 items, one with price, one without.
+7. Say *"remove the toothbrush"* → *"Removed toothbrush from your cart."*
+8. Say *"clear my cart"* → get a Yes/No prompt. Say yes → *"Cleared 1 item..."*
+9. Say *"what's in my cart?"* → *"Your cart is empty."*
+10. Add a couple items back. Say *"email me my cart"* → check Gmail for the HTML table.
+
+If steps 1-10 work, Shopping Cart is shipped.
+
+### 12.4 Live debugging while testing
+
+When something doesn't work on the glasses, the answer is almost always in Render's runtime logs. Three access paths:
+
+**A) Render dashboard — Logs tab** (easiest, browser-based)
+- Go to [dashboard.render.com/web/srv-d7hl7ogsfn5c73cvt2hg](https://dashboard.render.com/web/srv-d7hl7ogsfn5c73cvt2hg)
+- Click **Logs** in the left sidebar
+- Filter by time range or severity
+- Watch in real-time as you trigger events from the glasses
+
+Every webhook hit logs its channel + user ID + request ID:
+```
+[object-memory:webhook] media.photo user=proxy-abc123 req=8f3e...
+[object-memory:vision] objects=["keys","mug"] scene="on the kitchen counter..."
+[object-memory:db] inserted memory id=47 user=proxy-abc123
+```
+
+Every MCP dialog logs utterance + intent + match:
+```
+[object-memory:dialog] user=proxy-abc123 utterance="where are my keys"
+[object-memory:dialog] keyword="keys" match=47
+[shopping-cart:dialog] intent={"type":"list"}
+```
+
+**B) Filter by level in the MCP tool** (good for drill-down):
+```ts
+mcp__render__list_logs({
+  resource: ["srv-d7hl7ogsfn5c73cvt2hg"],
+  level: ["error", "warning"],
+  limit: 50
+})
+```
+Returns only errors/warnings. 99% of the time this is empty — if something's wrong, it'll surface here.
+
+**C) Curl against the live endpoint** (sanity-check plumbing):
+```bash
+# Health
+curl https://endlessriver-cosmos.onrender.com/health
+
+# Sign a request as if from Trace and call tools/list
+SECRET="b377f097829875445f63a7e4b002cf0e4b124d0f9a3124ed8945364fbfdaec41"
+BODY='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+TS=$(date +%s000)
+SIG="sha256=$(echo -n "${TS}.${BODY}" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
+curl -X POST https://endlessriver-cosmos.onrender.com/object-memory/mcp \
+  -H "x-trace-signature: $SIG" -H "x-trace-timestamp: $TS" \
+  -H "Content-Type: application/json" -d "$BODY"
+```
+
+If `/health` 200s but a signed `/mcp` call returns 401, your HMAC secret on Render doesn't match the one in the Trace dashboard. Re-paste it on Render → auto-redeploy → retry.
+
+#### Common failure modes and what to check
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| No TTS response after photo | Gemini rate-limited or API key invalid | Logs: `[vision] failed: ...` — if 429, wait a minute; if "invalid API key", re-set `GEMINI_API_KEY` |
+| *"I couldn't save that memory"* | Presigned image URL 403/expired | Logs: `image fetch 403` — rare; Trace URLs usually live ~1 hr. Re-photograph |
+| Every dialog → silence | `/mcp` returning 401 | Logs: signature mismatch — HMAC on Render doesn't match Trace dashboard |
+| *"I don't know who's asking"* | `user.id` missing from request | Likely a Trace app bug — check that glasses are paired |
+| *"Your cart is empty"* when you just added something | Two skills both processed the photo (routing ambiguity) | Check both `[object-memory:webhook]` and `[shopping-cart:webhook]` logs — if both fired on the same request, Trace routed to both. Adjust `domains` in the manifest to disambiguate |
+| Cold start (first request takes ~30s) | Render free-tier spin-down | Expected. Pre-warm by hitting `/health` before your test |
+
+If a symptom isn't on this list, grep Render logs for the `request_id` Trace embeds in every webhook — it threads through all our `console.log`s.
+
+### 12.5 Adding new skills to the same host (the template for skill #3+)
+
+Once Object Memory and Shopping Cart are proven, adding a third skill (Meal Tracker, Travel Journal, Gym Log, whatever) follows the exact same 10-step pattern:
+
+1. `mkdir src/skills/<new-slug>/`
+2. Write `db.ts`, `routes.ts`, `manifest.json` (copy shopping-cart, change prompts + schema).
+3. Mount in `src/index.ts`:
+   ```ts
+   app.use('/<new-slug>', buildNewSkillRouter({
+     hmacSecret: process.env.NEW_SKILL_HMAC_SECRET!,
+     skillId: process.env.NEW_SKILL_SKILL_ID!,
+   }));
+   ```
+4. Add env vars to `.env.example`.
+5. Write `scripts/smoke-<new-slug>.ts`.
+6. Local smoke test → all green.
+7. `git commit && git push` → Render auto-deploys.
+8. Register in Trace dashboard with `/<new-slug>/webhook` and `/<new-slug>/mcp` URLs.
+9. Paste the new HMAC + skill ID into Render env vars → auto-redeploy.
+10. Repeat Section 12.1 pre-flight → test with glasses.
+
+The chassis is built. Each new skill is ~60 minutes of focused work. That's the compounding thesis in Section 13 made concrete.
+
+---
+
+## 13. The larger lesson
 
 Two skills built on the same chassis, shared vision/geo/push libraries, one Render instance, one GitHub repo. That's the design point: **Trace Skills compound**. Each new skill is mostly a new prompt, new schema, new intent classifier — the plumbing (HMAC, webhooks, MCP, push, cron) is already written.
 
