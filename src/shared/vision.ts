@@ -2,7 +2,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import fetch from 'node-fetch';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+// gemini-1.5-flash (unsuffixed) was retired on Google's v1beta API.
+// gemini-2.5-flash is the current stable fast + vision-capable model (2026).
+// Override via GEMINI_MODEL env var if needed.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
