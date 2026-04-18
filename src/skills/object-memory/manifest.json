@@ -4,15 +4,16 @@
   "interface": "hybrid",
   "description": "Photographic memory for your things. Snap a photo of where you put something; later, ask 'where are my keys?' and get a voice answer with location and time.",
   "endpoints": {
-    "webhook": "https://your-domain.localhost.run/webhook",
-    "mcp": "https://your-domain.localhost.run/mcp"
+    "webhook": "https://your-host/object-memory/webhook",
+    "mcp": "https://your-host/object-memory/mcp"
   },
   "triggers": [
     { "channel": "media.photo", "routing_mode": "passive" },
     { "channel": "interaction.dialog", "routing_mode": "active" }
   ],
   "domains": {
-    "object_recall": "Help the user find objects they placed earlier. Match utterances like 'where are my keys', 'where did I leave my wallet', 'have you seen my passport', 'where is my phone', 'find my laptop'."
+    "object_recall": "Help the user find objects they placed earlier. Match utterances like 'where are my keys', 'where did I leave my wallet', 'have you seen my passport', 'find my laptop'.",
+    "place_naming": "Name the user's current location. Match utterances like 'call this place home', 'mark this as office', 'tag here gym'."
   },
   "permissions": [
     "notification.send",
@@ -22,6 +23,6 @@
   "allowedTools": [],
   "data_retention": {
     "max_days": 30,
-    "deletion_webhook": "https://your-domain.localhost.run/delete-user"
+    "deletion_webhook": "https://your-host/object-memory/delete-user"
   }
 }

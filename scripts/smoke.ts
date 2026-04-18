@@ -2,11 +2,11 @@ import crypto from 'crypto';
 import http from 'http';
 import {
   insertMemory,
-  deleteUserMemories,
+  deleteUserData,
   upsertPlace,
   listPlaces,
   placeNameForLocation,
-} from '../src/db';
+} from '../src/skills/object-memory/db';
 
 const SECRET = process.env.TRACE_HMAC_SECRET || 'your_hmac_secret_here';
 const HOST = '127.0.0.1';
@@ -61,13 +61,13 @@ function expect(cond: boolean, label: string) {
 
 (async () => {
   console.log('=== tools/list ===');
-  const list = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  const list = await post('/object-memory/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' });
   expect(list.status === 200, 'tools/list 200');
   expect(list.body.includes('handle_dialog'), 'tools/list has handle_dialog');
   expect(list.body.includes('mark_place'), 'tools/list has mark_place');
 
   console.log('\n=== seed: clean slate + home memory (2h ago) + office memory (30m ago) ===');
-  deleteUserMemories(USER_ID);
+  deleteUserData(USER_ID);
   upsertPlace({ user_id: USER_ID, name: 'home', lat: HOME_LAT, lng: HOME_LNG });
   insertMemory({
     user_id: USER_ID,
@@ -89,7 +89,7 @@ function expect(cond: boolean, label: string) {
   expect(placeNameForLocation(USER_ID, `${HOME_LAT},${HOME_LNG}`) === 'home', 'location resolves to "home"');
 
   console.log('\n=== dialog: "where are my keys" (should tag "at home") ===');
-  const keys = await post('/mcp', {
+  const keys = await post('/object-memory/mcp', {
     jsonrpc: '2.0',
     id: 2,
     method: 'tools/call',
@@ -102,7 +102,7 @@ function expect(cond: boolean, label: string) {
   console.log('  reply:', JSON.parse(keys.body).result.content[0].text);
 
   console.log('\n=== dialog: "where is my laptop" (no place tag, different location) ===');
-  const laptop = await post('/mcp', {
+  const laptop = await post('/object-memory/mcp', {
     jsonrpc: '2.0',
     id: 3,
     method: 'tools/call',
@@ -114,7 +114,7 @@ function expect(cond: boolean, label: string) {
   console.log('  reply:', JSON.parse(laptop.body).result.content[0].text);
 
   console.log('\n=== dialog: natural-language place command "call this place office" ===');
-  const namePlace = await post('/mcp', {
+  const namePlace = await post('/object-memory/mcp', {
     jsonrpc: '2.0',
     id: 4,
     method: 'tools/call',
@@ -126,7 +126,7 @@ function expect(cond: boolean, label: string) {
   expect(listPlaces(USER_ID).some((p) => p.name === 'office'), 'office place in DB');
 
   console.log('\n=== dialog: "where is my laptop" again (should now say "at office") ===');
-  const laptop2 = await post('/mcp', {
+  const laptop2 = await post('/object-memory/mcp', {
     jsonrpc: '2.0',
     id: 5,
     method: 'tools/call',
@@ -137,7 +137,7 @@ function expect(cond: boolean, label: string) {
   console.log('  reply:', JSON.parse(laptop2.body).result.content[0].text);
 
   console.log('\n=== mark_place tool direct ===');
-  const markDirect = await post('/mcp', {
+  const markDirect = await post('/object-memory/mcp', {
     jsonrpc: '2.0',
     id: 6,
     method: 'tools/call',
@@ -148,7 +148,7 @@ function expect(cond: boolean, label: string) {
   expect(listPlaces(USER_ID).some((p) => p.name === 'gym'), 'gym place saved');
 
   console.log('\n=== dialog: passport (miss — no semantic call because no Gemini key in smoke) ===');
-  const miss = await post('/mcp', {
+  const miss = await post('/object-memory/mcp', {
     jsonrpc: '2.0',
     id: 7,
     method: 'tools/call',
@@ -158,17 +158,14 @@ function expect(cond: boolean, label: string) {
   expect(miss.status === 200, 'passport miss 200');
   expect(miss.body.includes("haven't seen your passport"), 'miss message shown');
 
-  console.log('\n=== admin/run-recap ===');
-  const recap = await post('/admin/run-recap', {});
-  // admin endpoint uses x-admin-secret header, not HMAC. Its call from post() sends HMAC only; expect 401.
-  // We hit it raw:
+  console.log('\n=== admin/run-recap/object-memory ===');
   await new Promise<void>((resolve) => {
     const body = '{}';
     const req = http.request(
       {
         host: HOST,
         port: PORT,
-        path: '/admin/run-recap',
+        path: '/admin/run-recap/object-memory',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -191,7 +188,7 @@ function expect(cond: boolean, label: string) {
   });
 
   console.log('\n=== /delete-user cleanup ===');
-  const del = await post('/delete-user', { user_id: USER_ID });
+  const del = await post('/object-memory/delete-user', { user_id: USER_ID });
   expect(del.status === 200, 'delete 200');
   expect(JSON.parse(del.body).removed === 2, 'deleted 2 memories');
   expect(listPlaces(USER_ID).length === 0, 'places also wiped');

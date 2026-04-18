@@ -153,10 +153,51 @@ Turso is libSQL (SQLite-compatible) with HTTP/WebSocket. Swap `better-sqlite3` f
 ### Manual cron test
 
 ```bash
-curl -X POST http://localhost:3000/admin/run-recap \
-  -H "x-admin-secret: $TRACE_HMAC_SECRET"
+curl -X POST http://localhost:3000/admin/run-recap/object-memory \
+  -H "x-admin-secret: $OBJECT_MEMORY_HMAC_SECRET"
 ```
 Fires the daily recap immediately for any user with memories since midnight local.
+
+---
+
+## 🧩 Multi-Skill Layout
+
+This server is set up to host many skills under one deploy. Each skill is a
+self-contained folder under `src/skills/<slug>/` and is mounted at `/<slug>` by
+`src/index.ts`. Register each skill separately in the Trace dashboard with its
+own HMAC secret; the server routes them to the right handlers by path.
+
+```
+src/
+  index.ts                   # mounts skill routers, starts cron
+  hmac.ts                    # shared HMAC middleware
+  shared/
+    vision.ts                # Gemini wrapper (reuse across skills)
+    geo.ts                   # haversine, parseLocation, formatTimeAgo
+    push.ts                  # skill-push helper with timeout
+  skills/
+    object-memory/
+      manifest.json          # paste into Trace dashboard
+      routes.ts              # /webhook + /mcp + /delete-user
+      db.ts                  # memories + places tables
+```
+
+**URLs registered in the Trace dashboard:**
+- Webhook: `https://<your-host>/object-memory/webhook`
+- MCP: `https://<your-host>/object-memory/mcp`
+- Deletion: `https://<your-host>/object-memory/delete-user`
+
+Adding a new skill: copy `src/skills/object-memory/` to
+`src/skills/<new-slug>/`, tweak the logic, add a `buildRouter` export, then in
+`src/index.ts`:
+
+```ts
+app.use('/shopping-cart', buildShoppingCartRouter({
+  hmacSecret: process.env.SHOPPING_CART_HMAC_SECRET!,
+  skillId: process.env.SHOPPING_CART_SKILL_ID!,
+}));
+```
+Register the new skill in the Trace dashboard with its own secret and URLs.
 
 ---
 
