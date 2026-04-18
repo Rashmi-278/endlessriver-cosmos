@@ -6,6 +6,7 @@ import {
   buildObjectMemoryRouter,
   runDailyRecap as runObjectMemoryRecap,
 } from './skills/object-memory/routes';
+import { buildShoppingCartRouter } from './skills/shopping-cart/routes';
 
 dotenv.config();
 
@@ -20,13 +21,17 @@ const OBJECT_MEMORY = {
   skillId:
     process.env.OBJECT_MEMORY_SKILL_ID || process.env.TRACE_SKILL_ID || '',
 };
+const SHOPPING_CART = {
+  slug: 'shopping-cart',
+  hmacSecret: process.env.SHOPPING_CART_HMAC_SECRET || '',
+  skillId: process.env.SHOPPING_CART_SKILL_ID || '',
+};
 
 app.use(bodyParser.json({ limit: '2mb' }));
 
 // ─── Mount skills ─────────────────────────────────────────────────────────
 app.use(`/${OBJECT_MEMORY.slug}`, buildObjectMemoryRouter(OBJECT_MEMORY));
-
-// Shopping cart (future): app.use('/shopping-cart', buildShoppingCartRouter(...));
+app.use(`/${SHOPPING_CART.slug}`, buildShoppingCartRouter(SHOPPING_CART));
 
 // ─── Cron registration ───────────────────────────────────────────────────
 const DAILY_RECAP_CRON = process.env.DAILY_RECAP_CRON || '0 21 * * *';
@@ -65,18 +70,29 @@ app.post('/admin/run-recap/object-memory', (req: Request, res: Response) => {
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    skills: ['object-memory'],
+    skills: ['object-memory', 'shopping-cart'],
     semantic: process.env.DISABLE_SEMANTIC !== '1',
   });
 });
 
 app.get('/', (_req, res) => {
   res.type('text/plain').send(
-    'Trace Skills host\n\nMounted skills:\n  - POST /object-memory/webhook\n  - POST /object-memory/mcp\n  - POST /object-memory/delete-user\n',
+    [
+      'Trace Skills host',
+      '',
+      'Mounted skills:',
+      '  - POST /object-memory/webhook',
+      '  - POST /object-memory/mcp',
+      '  - POST /object-memory/delete-user',
+      '  - POST /shopping-cart/webhook',
+      '  - POST /shopping-cart/mcp',
+      '  - POST /shopping-cart/delete-user',
+      '',
+    ].join('\n'),
   );
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Trace skills host on :${PORT}`);
-  console.log(`   mounted: /${OBJECT_MEMORY.slug}`);
+  console.log(`   mounted: /${OBJECT_MEMORY.slug}, /${SHOPPING_CART.slug}`);
 });

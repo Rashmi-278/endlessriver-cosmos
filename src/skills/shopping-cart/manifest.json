@@ -1,0 +1,28 @@
+{
+  "name": "Shopping Cart",
+  "version": "1.0.0",
+  "interface": "hybrid",
+  "description": "In-store shopping cart built for wearables. Snap a photo of a product and say 'add this to my cart'. Ask 'what's in my cart', 'remove the lamp', 'clear my cart', or 'email me my cart'.",
+  "endpoints": {
+    "webhook": "https://endlessriver-cosmos.onrender.com/shopping-cart/webhook",
+    "mcp": "https://endlessriver-cosmos.onrender.com/shopping-cart/mcp"
+  },
+  "triggers": [
+    { "channel": "media.photo", "routing_mode": "passive" },
+    { "channel": "interaction.dialog", "routing_mode": "active" }
+  ],
+  "domains": {
+    "shopping": "Add, list, remove, clear, or email shopping cart items. Match utterances like 'add this to my cart', 'add this to my shopping list', 'what's in my cart', 'show my cart', 'remove the lamp', 'delete the chair', 'clear my cart', 'empty my cart', 'checkout', 'email me my cart'."
+  },
+  "permissions": [
+    "notification.send",
+    "user.profile.read"
+  ],
+  "allowedTools": [
+    "mail.send"
+  ],
+  "data_retention": {
+    "max_days": 30,
+    "deletion_webhook": "https://endlessriver-cosmos.onrender.com/shopping-cart/delete-user"
+  }
+}
