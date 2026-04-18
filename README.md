@@ -110,6 +110,54 @@ Ready to go live? Check out the `deploy.sh` script for instructions on deploying
 2. Get the new production URL.
 3. Update your endpoints in the **Trace Developer Dashboard**.
 
+### Persistent storage (important)
+
+This skill keeps memories in SQLite (`data/memories.db` by default). SQLite files are **local disk**, which means:
+
+- On **Vercel / serverless** they are wiped on every cold start. **Do not deploy there as-is** for the memory skill. Switch to a hosted SQLite like [Turso](https://turso.tech/) (free tier) or Postgres.
+- On **Railway / Fly.io / Render**, mount a persistent volume and point `DATABASE_PATH` at it.
+
+**Railway volume setup:**
+1. Dashboard → your service → **Variables** → add `DATABASE_PATH=/data/memories.db`
+2. **Volumes** → *New Volume* → mount path `/data`, 1 GB is plenty
+3. Redeploy. The skill auto-creates the directory and file on boot.
+
+**Fly.io volume setup:**
+```bash
+fly volumes create memdata --size 1 --region bom
+# in fly.toml:
+# [mounts]
+# source = "memdata"
+# destination = "/data"
+fly secrets set DATABASE_PATH=/data/memories.db
+```
+
+**Turso migration (if you outgrow single-instance SQLite):**
+Turso is libSQL (SQLite-compatible) with HTTP/WebSocket. Swap `better-sqlite3` for `@libsql/client`, set `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`, and convert `db.ts` to an async interface. Migration is mechanical; no schema change needed.
+
+### Environment variables
+
+| Var | Required | Default | Purpose |
+|---|---|---|---|
+| `TRACE_HMAC_SECRET` | ✅ | — | From Trace dashboard. Verifies webhook + MCP. |
+| `TRACE_SKILL_ID` | ✅ | — | From Trace dashboard. Used for Brain push. |
+| `GEMINI_API_KEY` | ✅ | — | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey), free tier. |
+| `BRAIN_BASE_URL` | — | `https://brain.endlessriver.ai` | Brain push target. |
+| `DATABASE_PATH` | — | `./data/memories.db` | SQLite file location. Point at a volume in prod. |
+| `DAILY_RECAP_CRON` | — | `0 21 * * *` | node-cron expression. Set to any valid cron. |
+| `DAILY_RECAP_TZ` | — | `Asia/Kolkata` | IANA timezone for the cron. |
+| `DAILY_RECAP_ENABLED` | — | `1` | `0` disables the cron entirely. |
+| `DISABLE_SEMANTIC` | — | `0` | `1` disables the LLM fallback (faster, dumber). |
+| `PORT` | — | `3000` | HTTP listen port. |
+
+### Manual cron test
+
+```bash
+curl -X POST http://localhost:3000/admin/run-recap \
+  -H "x-admin-secret: $TRACE_HMAC_SECRET"
+```
+Fires the daily recap immediately for any user with memories since midnight local.
+
 ---
 
 ### Need Help?

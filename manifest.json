@@ -1,27 +1,27 @@
 {
-  "name": "Template Skill",
+  "name": "Object Memory",
   "version": "1.0.0",
   "interface": "hybrid",
+  "description": "Photographic memory for your things. Snap a photo of where you put something; later, ask 'where are my keys?' and get a voice answer with location and time.",
   "endpoints": {
-    "webhook": "https://your-domain.ngrok-free.app/webhook",
-    "mcp": "https://your-domain.ngrok-free.app/mcp"
+    "webhook": "https://your-domain.localhost.run/webhook",
+    "mcp": "https://your-domain.localhost.run/mcp"
   },
   "triggers": [
+    { "channel": "media.photo", "routing_mode": "passive" },
     { "channel": "interaction.dialog", "routing_mode": "active" }
   ],
   "domains": {
-    "general": "Handle general greetings and tests for the template skill. Match utterances like 'test template' or 'hello from template'."
+    "object_recall": "Help the user find objects they placed earlier. Match utterances like 'where are my keys', 'where did I leave my wallet', 'have you seen my passport', 'where is my phone', 'find my laptop'."
   },
   "permissions": [
     "notification.send",
     "user.profile.read",
     "user.location.read"
   ],
-  "allowedTools": [
-    "mail.send"
-  ],
+  "allowedTools": [],
   "data_retention": {
     "max_days": 30,
-    "deletion_webhook": "https://your-domain.ngrok-free.app/delete-user"
+    "deletion_webhook": "https://your-domain.localhost.run/delete-user"
   }
 }
