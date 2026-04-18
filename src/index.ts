@@ -2,12 +2,12 @@ import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import fetch from 'node-fetch';
 import {
   buildObjectMemoryRouter,
   runDailyRecap as runObjectMemoryRecap,
 } from './skills/object-memory/routes';
 import { buildShoppingCartRouter } from './skills/shopping-cart/routes';
+import { inventoryStatus } from './shared/inventory';
 
 dotenv.config();
 
@@ -68,80 +68,12 @@ app.post('/admin/run-recap/object-memory', (req: Request, res: Response) => {
 });
 
 // ─── Health / root ───────────────────────────────────────────────────────
-// ─── Network probe: does Render's node reach IKEA's CDN? ─────────────────
-// Hit once from a browser/curl with the admin secret to decide if we can
-// build the on-demand IKEA lookup, or if we need to fall back to a curated
-// catalog. Tries multiple endpoints and reports what responds.
-app.get('/admin/probe-ikea', async (req: Request, res: Response) => {
-  if (req.headers['x-admin-secret'] !== OBJECT_MEMORY.hmacSecret) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-  const q = String(req.query.q || 'markus');
-  const ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-  const targets = [
-    { label: 'cdn-search', url: `https://sik.search.blue.cdtapps.com/in/en/search?q=${encodeURIComponent(q)}&size=5` },
-    { label: 'cdn-search-page', url: `https://sik.search.blue.cdtapps.com/in/en/search-result-page?q=${encodeURIComponent(q)}&size=5&types=PRODUCT` },
-    { label: 'ikea-search-html', url: `https://www.ikea.com/in/en/search/products/?q=${encodeURIComponent(q)}` },
-    { label: 'ikea-recs', url: `https://www.ikea.com/in/en/products/?q=${encodeURIComponent(q)}` },
-  ];
-  const results: any[] = [];
-  for (const t of targets) {
-    const started = Date.now();
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const r = await fetch(t.url, {
-        headers: {
-          'User-Agent': ua,
-          'Accept': 'application/json, text/plain, text/html;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-IN,en;q=0.9',
-          'Referer': 'https://www.ikea.com/in/en/',
-        },
-        signal: controller.signal as any,
-      });
-      clearTimeout(timeout);
-      const text = await r.text();
-      const ct = r.headers.get('content-type') || '';
-      let sample: any = text.slice(0, 400);
-      let parsedKind: string | null = null;
-      if (ct.includes('application/json')) {
-        try {
-          const j = JSON.parse(text);
-          sample = j;
-          parsedKind = 'json';
-        } catch {}
-      }
-      const ldMatches = text.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g);
-      const hasLd = Boolean(ldMatches && ldMatches.length);
-      results.push({
-        label: t.label,
-        url: t.url,
-        status: r.status,
-        contentType: ct,
-        bytes: text.length,
-        hasJsonLd: hasLd,
-        jsonLdBlocks: ldMatches?.length ?? 0,
-        parsedKind,
-        sample,
-        elapsedMs: Date.now() - started,
-      });
-    } catch (err: any) {
-      results.push({
-        label: t.label,
-        url: t.url,
-        error: String(err?.message || err),
-        elapsedMs: Date.now() - started,
-      });
-    }
-  }
-  res.json({ query: q, region: 'singapore', results });
-});
-
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     skills: ['object-memory', 'shopping-cart'],
     semantic: process.env.DISABLE_SEMANTIC !== '1',
+    inventory: inventoryStatus(),
   });
 });
 

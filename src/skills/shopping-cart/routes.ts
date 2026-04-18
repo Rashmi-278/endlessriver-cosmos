@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { verifyTraceSignature } from '../../hmac';
 import { visionExtract } from '../../shared/vision';
 import { sendPushResponse } from '../../shared/push';
+import { lookupProduct } from '../../shared/inventory';
 import {
   insertCartItem,
   listActiveCart,
@@ -325,63 +326,97 @@ export function buildShoppingCartRouter(cfg: ShoppingCartConfig): Router {
         `[shopping-cart:vision] item="${vision.item}" brand=${vision.brand} sku=${vision.sku} price=${vision.price_local}${vision.currency || ''} aisle=${vision.aisle} bin=${vision.bin} pickup=${vision.pickup_type} room=${vision.room}`,
       );
 
-      const id = insertCartItem({
-        user_id: user.id,
-        name: vision.item,
-        category: vision.category,
-        price_est_usd: vision.estimated_price_usd,
-        store_guess: vision.store_guess,
-        notes: vision.notes,
-        image_url: photo.url,
-        source: 'photo',
-        request_id,
+      // Enrich via retailer-uploaded inventory. Canonical data wins when there's a hit.
+      const hit = lookupProduct({
+        item: vision.item,
         brand: vision.brand,
         sku: vision.sku,
-        aisle: vision.aisle,
-        bin: vision.bin,
-        currency: vision.currency,
-        price_local: vision.price_local,
-        room: vision.room,
-        pickup_type: vision.pickup_type,
+        description: vision.notes,
+      });
+      const canonical = hit?.product;
+      if (canonical) {
+        console.log(
+          `[shopping-cart:enrich] matched id=${canonical.id} score=${hit!.score} reason=${hit!.reason}`,
+        );
+      } else {
+        console.log(`[shopping-cart:enrich] no inventory match; storing raw vision output`);
+      }
+
+      const merged = {
+        name: canonical?.name ?? vision.item,
+        category: canonical?.category ?? vision.category,
+        price_est_usd: canonical?.price_usd_est ?? vision.estimated_price_usd,
+        store_guess: canonical?._retailer ?? vision.store_guess,
+        notes: vision.notes ?? canonical?.description?.slice(0, 120) ?? null,
+        brand: canonical?.brand ?? vision.brand,
+        sku: canonical?.sku ?? vision.sku,
+        aisle: canonical?.aisle ?? vision.aisle,
+        bin: canonical?.bin ?? vision.bin,
+        currency: canonical?.currency ?? vision.currency,
+        price_local: canonical?.price ?? vision.price_local,
+        room: canonical?.room ?? vision.room,
+        pickup_type: canonical?.pickup_type ?? vision.pickup_type,
+      };
+
+      const id = insertCartItem({
+        user_id: user.id,
+        name: merged.name,
+        category: merged.category,
+        price_est_usd: merged.price_est_usd,
+        store_guess: merged.store_guess,
+        notes: merged.notes,
+        image_url: canonical?.image_url || photo.url,
+        source: 'photo',
+        request_id,
+        brand: merged.brand,
+        sku: merged.sku,
+        aisle: merged.aisle,
+        bin: merged.bin,
+        currency: merged.currency,
+        price_local: merged.price_local,
+        room: merged.room,
+        pickup_type: merged.pickup_type,
       });
 
-      // Build the TTS body — IKEA-aware phrasing when aisle/bin present.
+      // Build the TTS body from MERGED values so canonical inventory wins.
       const priceText = (() => {
-        if (vision.price_local != null && vision.currency) {
-          const sym = currencySymbol(vision.currency);
-          return sym ? `${sym}${Math.round(vision.price_local)}` : `${Math.round(vision.price_local)} ${vision.currency}`;
+        if (merged.price_local != null && merged.currency) {
+          const sym = currencySymbol(merged.currency);
+          return sym ? `${sym}${Math.round(merged.price_local)}` : `${Math.round(merged.price_local)} ${merged.currency}`;
         }
-        return vision.estimated_price_usd ? `~$${Math.round(vision.estimated_price_usd)}` : '';
+        return merged.price_est_usd ? `~$${Math.round(merged.price_est_usd)}` : '';
       })();
 
-      const brandText = vision.brand && vision.brand.toUpperCase() === 'IKEA' ? '' : vision.brand ? ` from ${vision.brand}` : '';
+      const brandText =
+        merged.brand && merged.brand.toUpperCase() === 'IKEA' ? '' : merged.brand ? ` from ${merged.brand}` : '';
       const locText =
-        vision.pickup_type === 'marketplace' && vision.aisle && vision.bin
-          ? `, aisle ${vision.aisle} bin ${vision.bin}`
-          : vision.store_guess && !vision.brand
-            ? ` at ${vision.store_guess}`
+        merged.pickup_type === 'marketplace' && merged.aisle && merged.bin
+          ? `, aisle ${merged.aisle} bin ${merged.bin}`
+          : merged.store_guess && !merged.brand
+            ? ` at ${merged.store_guess}`
             : '';
       const pricePart = priceText ? ` (${priceText}${locText})` : locText ? ` (${locText.replace(/^,\s*/, '')})` : '';
 
-      const body = `Added ${vision.item}${brandText}${pricePart} to your cart.`;
+      const body = `Added ${merged.name}${brandText}${pricePart} to your cart.`;
 
       await sendPushResponse(cfg.skillId, cfg.hmacSecret, user.id, [
         { type: 'notification', content: { title: 'Cart updated', body, tts: true } },
         {
           type: 'feed_item',
           content: {
-            title: `Cart: +${vision.item}`,
+            title: `Cart: +${merged.name}`,
             story: [
-              vision.brand && `${vision.brand}${vision.sku ? ` · ${vision.sku}` : ''}`,
-              vision.pickup_type === 'marketplace' && vision.aisle && vision.bin && `Aisle ${vision.aisle}, bin ${vision.bin}`,
-              vision.room && capitalize(vision.room.replace(/_/g, ' ')),
-              vision.notes,
+              merged.brand && `${merged.brand}${merged.sku ? ` · ${merged.sku}` : ''}`,
+              merged.pickup_type === 'marketplace' && merged.aisle && merged.bin && `Aisle ${merged.aisle}, bin ${merged.bin}`,
+              merged.room && capitalize(merged.room.replace(/_/g, ' ')),
+              merged.notes,
+              canonical?.product_url && `More: ${canonical.product_url}`,
             ].filter(Boolean).join(' · '),
           },
         },
       ], callback_url);
 
-      console.log(`[shopping-cart:db] inserted id=${id}`);
+      console.log(`[shopping-cart:db] inserted id=${id} enriched=${canonical ? 'yes' : 'no'}`);
     } catch (err: any) {
       console.error('[shopping-cart:webhook] failed:', err?.message || err);
       await sendPushResponse(cfg.skillId, cfg.hmacSecret, user.id, [
